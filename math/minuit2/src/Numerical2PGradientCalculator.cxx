@@ -23,6 +23,7 @@
 
 #include <cmath>
 #include <cassert>
+#include <iomanip>
 
 #include "Minuit2/MPIProcess.h"
 
@@ -59,8 +60,8 @@ FunctionGradient Numerical2PGradientCalculator::operator()(const std::vector<dou
    return (*this)(minpars);
 }
 
-FunctionGradient
-Numerical2PGradientCalculator::operator()(const MinimumParameters &par, const FunctionGradient &Gradient) const
+FunctionGradient Numerical2PGradientCalculator::
+operator()(const MinimumParameters &par, const FunctionGradient &Gradient) const
 {
    // calculate numerical gradient from MinimumParameters object
    // the algorithm takes correctly care when the gradient is approximatly zero
@@ -168,14 +169,29 @@ Numerical2PGradientCalculator::operator()(const MinimumParameters &par, const Fu
          grd(i) = 0.5 * (fs1 - fs2) / step;
          g2(i) = (fs1 + fs2 - 2. * fcnmin) / step / step;
 
-#ifndef _OPENMP
-         print.Debug([&](std::ostream &os) {
-            const int pr = os.precision(13);
-            os << "cycle " << j << " x " << x(i) << " step " << step << " f1 " << fs1 << " f2 " << fs2 << " grd "
-               << grd(i) << " g2 " << g2(i);
-            os.precision(pr);
-         });
+#ifdef _OPENMP
+#pragma omp critical
 #endif
+         {
+#ifdef _OPENMP
+            // must create thread-local MnPrint instances when printing inside threads
+            MnPrint print("Numerical2PGradientCalculator[OpenMP]");
+#endif
+            if (i == 0 && j == 0) {
+               print.Debug([&](std::ostream &os) {
+                  os << std::setw(10) << "parameter" << std::setw(6) << "cycle" << std::setw(15) << "x" << std::setw(15)
+                     << "step" << std::setw(15) << "f1" << std::setw(15) << "f2" << std::setw(15) << "grd"
+                     << std::setw(15) << "g2" << std::endl;
+               });
+            }
+            print.Debug([&](std::ostream &os) {
+               const int pr = os.precision(13);
+               const int iext = Trafo().ExtOfInt(i);
+               os << std::setw(10) << Trafo().Name(iext) << std::setw(5) << j << "  " << x(i) << " " << step << " "
+                  << fs1 << " " << fs2 << " " << grd(i) << " " << g2(i) << std::endl;
+               os.precision(pr);
+            });
+         }
 
          if (std::fabs(grdb4 - grd(i)) / (std::fabs(grd(i)) + dfmin / step) < GradTolerance()) {
             //    std::cout<<"j= "<<j<<std::endl;
@@ -200,10 +216,12 @@ Numerical2PGradientCalculator::operator()(const MinimumParameters &par, const Fu
    // print after parallel processing to avoid synchronization issues
    print.Debug([&](std::ostream &os) {
       const int pr = os.precision(13);
-
+      os << std::endl;
+      os << std::setw(14) << "Parameter" << std::setw(14) << "Gradient" << std::setw(14) << "g2 " << std::setw(14)
+         << "step" << std::endl;
       for (int i = 0; i < int(n); i++) {
          const int iext = Trafo().ExtOfInt(i);
-         os << "Parameter " << Trafo().Name(iext) << " Gradient " << grd(i) << " g2 " << g2(i) << " step " << gstep(i);
+         os << std::setw(14) << Trafo().Name(iext) << " " << grd(i) << " " << g2(i) << " " << gstep(i) << std::endl;
       }
       os.precision(pr);
    });
